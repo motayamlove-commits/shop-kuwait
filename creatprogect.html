@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <script src="./assets/js/firebase-client.js"></script>
+    <script src="./assets/js/products-store.js"></script>
     <title>لوحة التحكم -  للمنتجات فقط</title>
     <style>
         * {
@@ -409,8 +414,21 @@
             }
         });
 
+        // ذاكرة مؤقتة للمنتجات (تُملأ من Firestore عبر طبقة المزامنة)
+        let productsCache = [];
+
         function getProducts() {
-            return JSON.parse(localStorage.getItem('allProducts')) || defaultProducts;
+            return productsCache.length ? productsCache : (JSON.parse(localStorage.getItem('allProducts')) || defaultProducts);
+        }
+
+        async function persistProducts(products) {
+            productsCache = products;
+            if (typeof window.storeSaveProducts === 'function') {
+                const ok = await window.storeSaveProducts(products);
+                if (!ok) localStorage.setItem('allProducts', JSON.stringify(products));
+            } else {
+                localStorage.setItem('allProducts', JSON.stringify(products));
+            }
         }
 
         function saveProduct(event) {
@@ -435,9 +453,10 @@
                     price: price,
                     img: products[editingProductIndex].img
                 };
+                if (products[editingProductIndex]._id) newProduct._id = products[editingProductIndex]._id;
 
                 products[editingProductIndex] = newProduct;
-                localStorage.setItem('allProducts', JSON.stringify(products));
+                persistProducts(products);
                 showSuccess('تم تحديث المنتج بنجاح');
                 resetForm();
                 displayProducts();
@@ -463,6 +482,7 @@
 
                 if (editingProductIndex !== null) {
                     // تحديث المنتج
+                    if (products[editingProductIndex]._id) newProduct._id = products[editingProductIndex]._id;
                     products[editingProductIndex] = newProduct;
                     showSuccess('تم تحديث المنتج بنجاح');
                 } else {
@@ -471,7 +491,7 @@
                     showSuccess('تم إضافة المنتج بنجاح');
                 }
 
-                localStorage.setItem('allProducts', JSON.stringify(products));
+                persistProducts(products);
                 resetForm();
                 displayProducts();
             };
@@ -503,7 +523,7 @@
 
             if (confirm(`هل تريد حذف "${product.name}"؟`)) {
                 products.splice(index, 1);
-                localStorage.setItem('allProducts', JSON.stringify(products));
+                persistProducts(products);
                 showSuccess('تم حذف المنتج بنجاح');
                 displayProducts();
             }
@@ -564,10 +584,23 @@
             setTimeout(() => el.style.display = 'none', 3000);
         }
 
-        // عرض المنتجات عند التحميل
-        window.addEventListener('DOMContentLoaded', function() {
+        // عرض المنتجات عند التحميل — من Firestore مع احتياطي محلي
+        window.addEventListener('DOMContentLoaded', async function() {
             initializeDefaultProducts();
+            if (typeof window.storeGetProducts === 'function') {
+                productsCache = await window.storeGetProducts();
+                if (!productsCache || productsCache.length === 0) {
+                    productsCache = JSON.parse(localStorage.getItem('allProducts')) || defaultProducts;
+                }
+            }
             displayProducts();
+            // تحديث لحظي عند تغيير المنتجات من جهاز آخر
+            if (typeof window.storeWatchProducts === 'function') {
+                window.storeWatchProducts(function (items) {
+                    productsCache = items;
+                    displayProducts();
+                });
+            }
         });
     </script>
 </body>

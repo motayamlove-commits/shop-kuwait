@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <script src="./assets/js/firebase-client.js"></script>
+    <script src="./assets/js/products-store.js"></script>
     <title>مزارع الثنيان - Althenayan Farms</title>
     <style>
         * {
@@ -408,11 +413,9 @@
             }
         }
 
-        function loadProducts() {
-            initializeDefaultProducts();
-            const allProducts = JSON.parse(localStorage.getItem('allProducts')) || defaultProducts;
+        function renderProducts(allProducts) {
             const grid = document.getElementById('productsGrid');
-            
+            if (!grid) return;
             grid.innerHTML = allProducts.map((product, index) => `
                 <div class="ProductCard" data-price="${product.price}">
                     <div class="ProductInfo">
@@ -426,6 +429,25 @@
                     <button class="AddButton" onclick="updateQuantity(this, 1)">إضافة</button>
                 </div>
             `).join('');
+        }
+
+        async function loadProducts() {
+            initializeDefaultProducts();
+            // المصدر الأساسي: Firestore عبر طبقة المزامنة (مع احتياطي محلي)
+            let allProducts;
+            if (typeof window.storeGetProducts === 'function') {
+                allProducts = await window.storeGetProducts();
+                if (!allProducts || allProducts.length === 0) {
+                    allProducts = JSON.parse(localStorage.getItem('allProducts')) || defaultProducts;
+                }
+            } else {
+                allProducts = JSON.parse(localStorage.getItem('allProducts')) || defaultProducts;
+            }
+            renderProducts(allProducts);
+            // تحديث لحظي عند تغيير المنتجات من لوحة الإدارة
+            if (typeof window.storeWatchProducts === 'function') {
+                window.storeWatchProducts(function (items) { renderProducts(items); });
+            }
         }
 
         // تحميل المنتجات عند فتح الصفحة
